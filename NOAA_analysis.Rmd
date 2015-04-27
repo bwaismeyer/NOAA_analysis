@@ -7,30 +7,56 @@ output:
   html_document:
     keep_md: yes
 ---
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(cache = TRUE)
-```
+## WHERE AM I
+
+* Rebuild data from original source: ftp://ftp.ncdc.noaa.gov/pub/data/swdi/stormevents/csvfiles/
+* Clean the key data variables
+* Proceed through my laid out steps
+
 
 ## Synopsis
 This is an exploratory analysis of an open database provided by the the U.S. 
-National Oceanic and Atmospheric Administration (NOAA). It was guided by and
-completed to fulfill requirements of a course on 
-[Reproducible Research](https://www.coursera.org/course/repdata) on Coursera 
-(April 6, 2015 session).
+National Oceanic and Atmospheric Administration (NOAA). It is a re-envisioning
+and expansion of work I did to fulfill requirements of a course on 
+[Reproducible Research](https://www.coursera.org/course/repdata) on Coursera.
 
-The database used contains data about storms in the United States along with
-key estimates of how these storms impacted the human environment. More 
-information about the database can be found 
+The database used contains data about adverse weather events in the United 
+States along with estimates of how these storms impacted the human environment. 
+More information about the database can be found 
 [here](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf).
 
-The analysis aimed to address two proposed questions.
+I completed this analysis to satisfy both my personal curiousity and to gain
+experience exploring and buildings models from large, complex data.
 
-1. What types of storm events are most harmful to US population health?
-2. What types of events have the most impact on US economy?
+My overarching analytic objective was pretty simple: Develop an understanding
+of the risks to public health and economy posed by adverse weather events.
 
-**PROVIDE BRIEF SUMMARY WHEN ANALYSIS IS COMPLETE**
+I broke this objective down as follows.
 
-## Loading Supporting Resources
+1. The dataset has some messy and inconsistent coding issues. I want to capture
+   where and how much error is present, correct what I can, and understand what
+   can't be corrected.
+2. Describe and visualize the patterns of event occurrence.
+3. Describe and visualize the broad, overall relationship between adverse 
+   weather events and assessed public health outcomes.
+4. Describe and visualize the broad, overall relationship between adverse 
+   weather events and assessed economic cost.
+
+This analysis will conducted in alignment with reproducible data principles. All
+stages of the analysis - from dataset processing to analysis - will be conveyed
+as clearly as possible.
+
+## Key Dataset Limitations
+There are notable limits on what events were recorded up to the start of 1996:
+http://www.ncdc.noaa.gov/stormevents/details.jsp. Certain events will be
+overrepresented purely because they have been documented for a much larger
+window of time.
+
+## Load Supporting Resources
+This are R packages selected for my work or scripts containing functions I
+wrote to support this project. Any custom scripts will be available at the
+[GitHub repository for this project](https://github.com/bwaismeyer/NOAA_analysis).
+
 ```{r}
 library(stringr)    # for cleaning EVTYPE character strings
 library(dplyr)      # for dataset reformatting
@@ -40,7 +66,8 @@ library(ggplot2)    # for making our data visualizations
 
 ## Data Processing
 The dataset for the analysis was provided by Coursera instructors but appeared
-to be a faithful copy (or at least subset) of the original NOAA database. For
+to be a faithful copy (or at least subset) of the [NOAA "Storm Events 
+Database](" . For
 the purposes of the analysis, no "preprocessing" was assumed except that
 conducted during measurement, collection, and database construction.
 

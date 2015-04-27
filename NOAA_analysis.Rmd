@@ -1,0 +1,472 @@
+---
+title: Using the NOAA Storm Database to Explore the Impact of Weather Events on 
+       US Public Health and Economy
+author: "Brian Waismeyer"
+date: "Thursday, April 23, 2015"
+output:
+  html_document:
+    keep_md: yes
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+## Synopsis
+This is an exploratory analysis of an open database provided by the the U.S. 
+National Oceanic and Atmospheric Administration (NOAA). It was guided by and
+completed to fulfill requirements of a course on 
+[Reproducible Research](https://www.coursera.org/course/repdata) on Coursera 
+(April 6, 2015 session).
+
+The database used contains data about storms in the United States along with
+key estimates of how these storms impacted the human environment. More 
+information about the database can be found 
+[here](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf).
+
+The analysis aimed to address two proposed questions.
+
+1. What types of storm events are most harmful to US population health?
+2. What types of events have the most impact on US economy?
+
+**PROVIDE BRIEF SUMMARY WHEN ANALYSIS IS COMPLETE**
+
+## Loading Supporting Resources
+```{r}
+library(stringr)    # for cleaning EVTYPE character strings
+library(dplyr)      # for dataset reformatting
+library(tidyr)      # for dataset reformatting
+library(ggplot2)    # for making our data visualizations
+```
+
+## Data Processing
+The dataset for the analysis was provided by Coursera instructors but appeared
+to be a faithful copy (or at least subset) of the original NOAA database. For
+the purposes of the analysis, no "preprocessing" was assumed except that
+conducted during measurement, collection, and database construction.
+
+### Getting the Data
+```{r cache = TRUE}
+# we quickly verify that we are not overwriting any local files...
+if(file.exists("./NOAA_database.csv")) {
+    # warn the user if a copy already exists
+    stop("Please remove the 'NOAA_database.csv' file from the local working
+         directory or - if the file is current - skip this processing step.")
+} else {
+    # if all is clear, we download the dataset
+    download_url <- paste0("http://d396qusza40orc.cloudfront.net/",
+                           "repdata%2Fdata%2FStormData.csv.bz2")
+    
+    download.file(url = download_url,
+                  destfile = "./NOAA_database.csv")
+    
+    # clean up the url from the workspace
+    rm(download_url)
+}
+
+# read the data into R (note that I prefer not to assume characters = factors)
+storms <- read.csv("./NOAA_database.csv", 
+                   stringsAsFactors = FALSE)
+
+# clean up the download file
+unlink("./NOAA_database.csv")
+```
+### Reviewing the Data
+We take a quick look at the data structure, both to understand it and to insure
+it loaded correctly.
+
+```{r}
+str(storms)
+head(storms)
+```
+
+### Tidying the Data
+Our main interest is going to be the event type variable (```EVTYPE```) and
+how it relates to public health and economic variables. So, we start by making
+it a proper factor. This ends up requiring a few steps due to inconsistent
+formatting.
+```{r}
+# first we inspect the unique character strings in the EVTYPE variable
+head(unique(storms$EVTYPE))
+length(unique(storms$EVTYPE))
+```
+We discover several cases where there are either leading/trailing whitespace
+(e.g., ```"   HIGH SURF ADVISORY"```), where there are multiple versions of the
+same string but with different capitalization (e.g., ```"Thunderstorm"```, 
+```"THUNDERSTORM"```), where numbers have been added, etc.
+
+The NOAA documentation provides no reason to believe differences in 
+capitalization or whitespace are meaningful and does not permit name variations.
+We attempt to clean out obvious incorrect features.
+
+```{r}
+# make capitalization conistent (all lowercase)
+storms$EVTYPE <- tolower(storms$EVTYPE)
+
+# drop any non-letter symbols - replacing with a single space to avoid 
+# collapsing any words together if a symbol was being used as a separator
+storms$EVTYPE <- gsub("[^a-zA-Z]", " ", storms$EVTYPE)
+
+# remove leading/trailing whitespace
+storms$EVTYPE <- str_trim(storms$EVTYPE)
+
+# remove any extra spaces between words (no more than 1 space between words
+# allowed)
+storms$EVTYPE <- gsub(" +", " ", storms$EVTYPE)
+
+# check unique strings
+ev_length <- length(unique(storms$EVTYPE))
+ev_length
+```
+The NOAA documentation lists 48 unique event types. We have `r ev_length`.
+
+To figure out what is going on, we can inspect how often specific codes are
+actually used in the data.
+
+```{r}
+# make a table of how often all event codes were used, sorted most to least
+code_freq_table <- sort(table(storms$EVTYPE), decreasing = TRUE)
+head(code_freq_table)
+
+# what proportion of codes are used more than once?
+more_than_one <- sum(code_freq_table > 1)/length(code_freq_table)
+more_than_one
+
+# more than 5 times?
+more_than_five <- sum(code_freq_table > 5)/length(code_freq_table)
+more_than_five
+```
+
+It looks like only a small proportion of the current names were used very often. 
+A proper cleaning would require digging through the list and identifying 
+mispellings, alternate arrangements, etc. 
+
+For the purposes of this analysis, we implemented a very simple cleaning:
+
+* Contrast existing event names against the official NOAA event names.
+* Check to see if there are any common patterns in the non-compliant event
+  names that can be corrected via simple subsitutions (e.g., "tstm" being used
+  as shorthand for "thunderstorm").
+* Convert any events that have a partial match to an official name to an 
+  official name. Events will be matched in the order they occur in our official
+  name list, which has been arranged from most to least complex event name 
+  (e.g., if an event was named "flood/flash flood" it would be converted to the 
+  official name "flood"; if an event is named "thunderstorm wind/hail" it will 
+  match "thunderstorm wind" as that event name is higher in our sorted list).
+* Any remaining events with non-compliant names are retained but re-named 
+  "non-compliant" so that we can assess whether important events are hiding
+  in the mess.
+
+```{r}
+# define the event names permitted in NOAA documentation
+official_event_names <- c(
+    "astronomical low tide", 
+    "avalanche",
+    "blizzard",
+    "coastal flood",
+    "cold/wind chill",
+    "debris flow",
+    "dense fog",
+    "dense smoke",
+    "drought",
+    "dust devil",
+    "dust storm",
+    "excessive heat",
+    "extreme cold/wind chill",
+    "flash flood",
+    "flood",
+    "frost/freeze",
+    "funnel cloud",
+    "freezing fog",
+    "hail",
+    "heat",
+    "heavy rain",
+    "heavy snow",
+    "high surf",
+    "high wind",
+    "hurricane (typhoon)",
+    "ice storm",
+    "lake-effect snow",
+    "lakeshore flood",
+    "lightning",
+    "marine hail",
+    "marine high wind",
+    "marine strong wind",
+    "marine thunderstorm wind",
+    "rip current",
+    "seiche",
+    "sleet",
+    "storm surge/tide",
+    "strong wind",
+    "thunderstorm wind",
+    "tornado",
+    "tropical depression",
+    "tropical storm",
+    "tsunami",
+    "volcanic ash",
+    "waterspout",
+    "wildfire",
+    "winter storm",
+    "winter weather"
+)
+
+# apply the same corrections to these names as we did to the event names
+# above (since some of these have symbols in them)
+official_event_names <- tolower(official_event_names)
+official_event_names <- gsub("[^a-zA-Z]", " ", official_event_names)
+official_event_names <- str_trim(official_event_names)
+official_event_names <- gsub(" +", " ", official_event_names)
+
+# sort the official names from most to least complex (based on name length)
+official_event_names <- data.frame(names = official_event_names,
+                                   complexity = nchar(official_event_names),
+                                   stringsAsFactors = FALSE)
+official_event_names <- arrange(official_event_names, desc(complexity))
+
+# assess what proportion of event names are an exact match with an official 
+# event name
+compliance_before_clean <- sum(storms$EVTYPE %in% official_event_names$names) /
+                           length(storms$EVTYPE)
+compliance_before_clean
+
+# assess if there are any patterns to the non-compliant names
+non_compliant_index <- storms$EVTYPE %in% official_event_names$names
+non_compliant_events <- storms$EVTYPE[non_compliant_index]
+non_compliant_summary <- sort(table(non_compliant_events), decreasing = TRUE)
+
+head(non_compliant_summary, 20)
+
+# our inspection raises a common set of recurring issues that can be fixeed
+# via string subsitution; we define a list of fixes to make
+# NOTE: we only need to include fixes that will prevent our PARTIAL
+# match appr
+sub_list <- list(
+    # most common alternate spelling issues
+    list(pattern = "tstm", replacement = "thunderstorm", 
+         fixed = TRUE),
+    list(pattern = "flooding", replacement = "flood", 
+         fixed = TRUE),
+    # a touch trickier - a common error is to make a name plural (e.g., wind to 
+    # winds and cloud to clouds); conveniently, NONE of the official names are
+    # plural and only "debris flow" has an "s" at the end of any word... more
+    # conveniently, "debris" occurs only once in our data and is used
+    # incorrectly... so we simply drop any "s" that occurs at the end of a word
+    list(pattern = "s\\b", replacement = "", 
+         fixed = FALSE),
+    # make explicit changes to commonly occuring categories that are either
+    # incorrect or which are combinations (documentation states that only name
+    # can be assigned); the first combination member was retained
+    list(pattern = "urban/sml stream fld", replacement = "flood", 
+         fixed = TRUE),
+    list(pattern = "wild/forest fire", replacement = "wildfire", 
+         fixed = TRUE),
+    list(pattern = "winter weather/mix", replacement = "winter weather", 
+         fixed = TRUE),
+    list(pattern = "thunderstorm wind/hail", replacement = "thunderstorm wind", 
+         fixed = TRUE),
+    list(pattern = "^extreme cold$", replacement = "extreme cold wind chill", 
+         fixed = FALSE),
+    list(pattern = "flood/flash flood", replacement = "flash flood", 
+         fixed = TRUE),
+    list(pattern = "urban flood", replacement = "flood", 
+         fixed = TRUE),
+    list(pattern = "^storm surge$", replacement = "storm surge tide", 
+         fixed = FALSE),
+    list(pattern = "^hurricane$", replacement = "hurricane typhoon", 
+         fixed = FALSE)
+)
+
+# now we loop over our sub_list with gsub to implement the string substitutions
+for(index in 1:length(sub_list)) {
+    current_fix <- sub_list[[index]]
+    storms$EVTYPE <- gsub(current_fix$pattern, 
+                          current_fix$replacement, 
+                          storms$EVTYPE,
+                          fixed = current_fix$fixed)
+}
+
+rm(index, current_fix)
+
+# assess our rate of compliance again
+compliance_after_clean <- sum(storms$EVTYPE %in% official_event_names$names) /
+                           length(storms$EVTYPE)
+compliance_after_clean
+```
+
+We improved event name compliance from `r compliance_before_clean` to 
+`r compliance_after_clean`. The post cleaning compliance is acceptable.
+
+```{r}
+# now we duplicate our EVTYPES column (in case we want to recover any more
+# non-compliant names later)
+storms$EVTYPE_NC_PREFIX <- storms$EVTYPE
+
+# any remaining non-compliant names are now dropped and replaced with "non-
+# compliant"
+storms$EVTYPE[!(storms$EVTYPE %in% official_event_names$names)] <- 
+    "non-compliant"
+
+# finally, we verify that we now only have official event names in our data
+# (plus the new "non-compliant" event type and minus "debris flow" which
+# never occurs in our data)
+length(unique(storms$EVTYPE))
+```
+
+## Results
+This section will present analyses attemping to address our two key questions.
+
+### What types of storm events are most harmful to US population health?
+For this analysis, we restricted "public health" to measurements of immediate
+harm to persons. So, for example, fatality and injury data were considered
+variables of interest but crop and property damage (which could have longer
+term consequences for public health) were not.
+
+We address the question first by simply exploring frequencies of fatalities
+(```FATALITIES```) and injuries (```INJURIES```) overall.
+
+```{r}
+# we start off with some simple summary statistics: ignoring event type, what
+# are typical fatality rates per weather event?
+summary(storms$FATALITIES)
+sd(storms$FATALITIES)
+
+# injury rates?
+summary(storms$INJURIES)
+sd(storms$INJURIES)
+```
+Given that most storms appear to have 0 injuries or fatalities, we take a 
+simple approach to grouping our events to get a clear take on how often
+fatalities and injuries occur at all
+
+```{r}
+# first we add two new factors to our dataset to group our events by number
+# of fatalities or injuries
+storms$FAT_FACTOR <- sapply(storms$FATALITIES, function(x) 
+    if(x == 0) {
+      return("None")
+    } else if (x > 5) {
+        return("Five or More")
+    } else {
+        return("One to Five")
+    }
+)
+
+storms$INJ_FACTOR <- sapply(storms$INJURIES, function(x) 
+    if(x == 0) {
+      return("None")
+    } else if (x > 5) {
+        return("Five or More")
+    } else {
+        return("One to Five")
+    }
+)
+
+# now we turn these into proper, ordered factors
+storms$FAT_FACTOR <- factor(storms$FAT_FACTOR, 
+                            levels = c("None", "One to Five", "Five or More"),
+                            labels = c("None", "One to Five", "Five or More")
+                            )
+
+storms$INJ_FACTOR <- factor(storms$INJ_FACTOR, 
+                            levels = c("None", "One to Five", "Five or More"),
+                            labels = c("None", "One to Five", "Five or More")
+                            )
+
+# we make a simplified dataset and melt/tweak it for nice plotting
+fi_counts <- storms[c("FAT_FACTOR", "INJ_FACTOR")]
+
+fi_counts <- gather(fi_counts, key = "Harm_Type", value = "Harm_Volume")
+fi_counts$Harm_Type <- factor(fi_counts$Harm_Type, 
+                                levels = c("FAT_FACTOR", "INJ_FACTOR"),
+                                labels = c("Fatalities", "Injuries")
+                                )
+fi_counts$Harm_Volume <- factor(fi_counts$Harm_Volume,
+                                levels = c("None", "One to Five", 
+                                           "Five or More"),
+                                labels = c("None", "One to Five", 
+                                           "Five or More")
+                                )
+
+# now we check out the results in graphical form
+ggplot(fi_counts, aes(x = Harm_Volume, fill = Harm_Type)) + 
+    geom_bar(position = "dodge") +
+    ylab("Frequency") +
+    xlab("Number of Persons Experiencing Harm") +
+    scale_fill_discrete(name = "Type of Harm")
+
+# and tabular form (counts)
+table(fi_counts)
+```
+
+We can see that, overall, injuries and fatalities are quite rare during tracked
+storm events.
+
+Still, our question is focused on **which** storm event has the largest impact on
+public health. We can answer this in three ways.
+
+1. __Which type of storm event has the highest number of fatalities/injuries?__
+   This confounds event type frequency and event type danger but is probably
+   more useful for budgeting for future, unknown event periods.
+
+```{r}
+storms$EVTYPE <- factor(storms$EVTYPE, 
+                        levels = unique(storms$EVTYPE),
+                        labels = unique(storms$EVTYPE))
+most_inj_overall <- sort(xtabs(INJURIES ~ EVTYPE, data = storms), 
+                         decreasing = TRUE)
+most_fat_overall <- sort(xtabs(FATALITIES ~ EVTYPE, data = storms), 
+                         decreasing = TRUE)
+
+# largest single sources of injuries?
+head(most_inj_overall)
+
+# of fatalities
+head(most_fat_overall)
+```
+
+2. __Which type of storm event has the highest rate of fatalities/injuries?__ 
+   This tells which event is type is historically associated with the most
+   harm when it occurs. This would be useful for choosing how to allocate
+   resources among concurrent events where measurements of harm have not     
+   yet been collected or for calculating worst-case scenario allocation.
+   
+Although an important question, it was not addressed for the time being in this
+analysis.
+
+### What types of events have the most impact on US economy?
+For this analysis, we focus on the direct estimates of cost (```PROPDMG``` and 
+```CROPDMG```) included in the dataset. It is unclear if the measures have been 
+adjusted for inflation. We will ignoreinflation for this analysis.
+
+Per NOAA documentation, the cost estimates were recorded as follows:
+
+> Estimates should be rounded to three significant digits, followed by an 
+  alphabetical character signifying the magnitude of the number, i.e., 1.55B for
+  $1,550,000,000. Alphabetical characters used to signify magnitude include “K” 
+  for thousands, “M” for millions, and “B” for billions. 
+
+So we first want to clean our magnitude variables and then combine these with
+our cost estimate variables to get the actual cost amounts.
+
+```{r}
+# compliant symbols
+compliant_symbols <- c("K", "M", "B")
+
+# correct the most obvious cause for mismatch (case)
+storms$PROPDMGEXP <- toupper(storms$PROPDMGEXP)
+storms$CROPDMGEXP <- toupper(storms$CROPDMGEXP)
+
+# assess compliance
+sum(storms$PROPDMGEXP %in% compliant_symbols) / length(storms$PROPDMGEXP)
+sum(storms$CROPDMGEXP %in% compliant_symbols) / length(storms$CROPDMGEXP)
+```
+
+Compliance is relatively poor for both property and crop magnitude variables.
+Due to time considerations, this analysis simply excludes any non-compliant
+cases from the next part of the analysis.
+
+```{r}
+# get data with compliant property magnitude
+comp_data <- storms[storms$PROPDMGEXP %in% compliant_symbols, ]
+
+
+```

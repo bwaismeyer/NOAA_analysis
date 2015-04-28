@@ -58,6 +58,7 @@ wrote to support this project. Any custom scripts will be available at the
 [GitHub repository for this project](https://github.com/bwaismeyer/NOAA_analysis).
 
 ```{r}
+library(rvest)      # getting the links to the source data files
 library(stringr)    # for cleaning EVTYPE character strings
 library(dplyr)      # for dataset reformatting
 library(tidyr)      # for dataset reformatting
@@ -65,13 +66,80 @@ library(ggplot2)    # for making our data visualizations
 ```
 
 ## Data Processing
-The dataset for the analysis was provided by Coursera instructors but appeared
-to be a faithful copy (or at least subset) of the [NOAA "Storm Events 
-Database](" . For
-the purposes of the analysis, no "preprocessing" was assumed except that
-conducted during measurement, collection, and database construction.
+**TBD**
 
 ### Getting the Data
+```{r}
+# specify the URL where the dataset pieces are available
+source_url <- "http://www1.ncdc.noaa.gov/pub/data/swdi/stormevents/csvfiles/"
+
+# parse the page with rvest
+source_doc <- html(source_url)
+
+# the names of the dataset pieces - a whole bunch of separate, zipped .csv
+# files - are located in a table in the page body; we use rvest to extract
+# this table into an R data frame object
+body_table <- source_doc %>% html_nodes("table") %>% .[[1]] %>% html_table()
+
+# the Name column has the file names that we want to download along with
+# some other junk - we just want the zipped file names; these can be 
+# distinguished because they have ".gz" in them
+file_name_index <- grepl(".gz", body_table$Name)
+file_names <- body_table$Name[file_name_index]
+
+# the files we want come in three flavors - details, fatalities, and locations
+# we want to collect like files together first, which means we want to be able
+# to identify each file with it's "flavor"
+flavor_set <- c("details", "fatalities", "locations")
+get_flavor_match <- function(file_name, flavor_set) {
+    test_set <- c()
+    
+    for(index in 1:length(flavor_set)) {
+        current_test <- grepl(flavor_set[index], file_name)
+        test_set <- c(test_set, current_test)
+    }
+    
+    flavor_match <- flavor_set[test_set]
+    
+    return(flavor_match)
+}
+
+flavor_matches <- sapply(file_names, 
+                         function(x) get_flavor_match(x, flavor_set))
+
+# there are three flavors of noaa data: details, fatalities, locations
+# we are going to download all the files and then read each flavor collection
+# into its own list
+download_noaa_data <- function(source_url, file_names, flavor_set) {
+    download_dir <- "./noaa_collection"
+    
+    if(download_dir %in% list.dirs()) {
+        stop("Please remove the 'noaa_collection' folder from the working",
+             "directory or change the working directory. This function uses",
+             "that folder name.")
+    }
+    
+    dir.create(download_dir)
+    
+    for(index in 1:length(file_names)) {
+        current_name <- file_names[index]
+        target_url <- paste0(source_url, current_name)
+        download_path <- paste0(download_dir, "/",
+                                flavor_set[[index]], index, 
+                                ".csv.gz")
+        
+        download.file(target_url, download_path)
+        
+        message("File ", index, " of ", length(file_names))
+        message("")
+    }
+    
+    list.files(download_dir)
+}
+
+```
+
+
 ```{r cache = TRUE}
 # we quickly verify that we are not overwriting any local files...
 if(file.exists("./NOAA_database.csv")) {

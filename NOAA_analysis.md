@@ -1,12 +1,6 @@
----
-title: Using the NOAA Storm Database to Explore the Impact of Weather Events on 
-       US Public Health and Economy
-author: "Brian Waismeyer"
-date: "Thursday, April 23, 2015"
-output:
-  html_document:
-    keep_md: yes
----
+# Using the NOAA Storm Database to Explore the Impact of Weather Events on US Public Health and Economy
+Brian Waismeyer  
+Thursday, April 23, 2015  
 ## Where I'm At...
 * Free-flow analysis work
 * Rewrite openinging sections
